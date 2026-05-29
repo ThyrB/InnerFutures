@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inner Futures</title>
+
+  <!-- Fonts live in fonts.css — no need to scroll past them here -->
+  <link rel="stylesheet" href="fonts.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <style>
+    /* ============================================================
+       COLOURS — edit here
+       ============================================================ */
+    :root {
+      --bg:         #f84cdb;   /* page background */
+      --nav-idle:   #ffffff;   /* navigation labels (unselected) */
+      --nav-active: #ffffff;   /* navigation labels (selected / hover) */
+      --accent:     #1eff00;   /* accent: dot, line, hints */
+      --text:       #ffffff;   /* body text */
+      --mesh:       #650a7c;   /* wireframe cloud colour */
+    }
+
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    body { background:var(--bg); overflow:hidden; width:100vw; height:100vh; font-family:"JOHTvibo",Arial,sans-serif; }
+
+    #c { position:fixed; inset:0; width:100%; height:100%; z-index:0; }
+    #bg-click { position:fixed; inset:0; z-index:5; cursor:default; }
+
+    /* ── LANDING ── */
+    #landing {
+      position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+      z-index:20; cursor:pointer; transition:opacity 0.9s ease;
+    }
+    #landing h1 {
+      font-family:"JOHTvibo",Arial,sans-serif; font-weight:900;
+      font-size:clamp(3.5rem,9vw,7.5rem); color:var(--text);
+      text-align:center; line-height:0.88; letter-spacing:-0.02em;
+      pointer-events:none; text-shadow:0 0 80px color-mix(in srgb, var(--bg) 95%, transparent);
+    }
+
+    /* ── NAV ── */
+    #nav { position:fixed; inset:0; z-index:15; opacity:0; pointer-events:none; transition:opacity 0.6s ease; }
+    #nav.show { opacity:1; }
+    .nav-label {
+      position:absolute;
+      font-family:"JOHTvibo",Arial,sans-serif; font-weight:900;
+      font-size:clamp(1.4rem,3.2vw,3rem); color:var(--nav-idle);
+      letter-spacing:-0.01em; line-height:1;
+      cursor:pointer; user-select:none; pointer-events:all;
+      transition:color 0.25s ease, opacity 0.4s ease;
+      z-index:16;
+    }
+    .nav-label:hover { color:var(--nav-active); }
+    .nav-label.dim   { opacity:0.18; pointer-events:none; }
+    .nav-label.gone  { opacity:0;    pointer-events:none; }
+    .nav-label.bright{ color:var(--nav-active); }
+
+    #nl-process    { top:5vh;   left:4vw; }
+    #nl-timeline   { top:5vh;   right:4vw; text-align:right; }
+    #nl-what       { top:50%; left:50%; transform:translate(-50%,-50%);
+                     font-size:clamp(2rem,4.5vw,4rem); color:var(--nav-active); }
+    #nl-team       { bottom:5vh; left:4vw; }
+    #nl-background { bottom:5vh; right:4vw; text-align:right; }
+
+    /* ── CONTENT ── */
+    #content { position:fixed; inset:0; z-index:18; opacity:0; pointer-events:none; transition:opacity 0.5s ease; }
+    #content.show { opacity:1; }
+    .panel { display:none; position:absolute; inset:0; }
+    .panel.active { display:block; }
+
+    .prose {
+      font-family:"JOHTvibo",Arial,sans-serif; font-weight:400;
+      font-size:clamp(0.82rem,1.05vw,0.96rem); color:var(--text);
+      line-height:1.72; opacity:0.88;
+    }
+    .prose+.prose { margin-top:1em; }
+
+    /* ── WHAT — centered ── */
+    #panel-what .text-wrap {
+      position:absolute; top:50%; left:50%;
+      transform:translate(-50%, calc(-50% + 14px));
+      width:min(540px,80vw); padding:2.4rem;
+      background:color-mix(in srgb, var(--bg) 60%, transparent); backdrop-filter:blur(6px);
+      opacity:0; transition:opacity 0.6s ease 0.1s, transform 0.6s ease 0.1s;
+      pointer-events:all;
+    }
+    #panel-what .text-wrap.in { opacity:1; transform:translate(-50%,-50%); }
+
+    /* ── TIMELINE ── */
+    #panel-timeline .text-wrap { position:absolute; top:12vh; right:4vw; max-width:440px; padding:0 1rem; pointer-events:all; }
+    .tier-block { margin-bottom:0; overflow:hidden; }
+    .tier-head {
+      font-family:"JOHTvibo",Arial,sans-serif; font-weight:900;
+      font-size:clamp(0.92rem,1.55vw,1.35rem); color:var(--text);
+      padding:0.75rem 0; opacity:0.3; cursor:pointer;
+      transition:opacity 0.4s ease;
+    }
+    .tier-head:hover { opacity:0.65; }
+    .tier-head.active-tier { opacity:1; cursor:default; }
+    .tier-body { max-height:0; overflow:hidden; opacity:0; transition:max-height 0.55s ease, opacity 0.45s ease 0.08s; }
+    .tier-body.open { max-height:320px; opacity:1; }
+    .tier-body p { padding-bottom:1.1rem; }
+
+    /* ── PROCESS ── */
+    #panel-process { pointer-events:none; }
+    #proc-svg { position:fixed; inset:0; width:100%; height:100%; pointer-events:none; z-index:19; overflow:visible; }
+    .proc-dot  { fill:var(--accent); opacity:0; transition:opacity 0.4s ease; }
+    .proc-dot.in { opacity:1; }
+    .proc-line {
+      stroke:var(--accent); stroke-width:1;
+      stroke-dasharray:90; stroke-dashoffset:90;
+      opacity:1;
+      transition:stroke-dashoffset 0.45s ease;
+    }
+    .proc-line.in { stroke-dashoffset:0; }
+
+    #proc-lbl {
+      position:fixed; pointer-events:all; z-index:19;
+      opacity:0; transform:translateY(8px);
+      transition:opacity 0.45s ease, transform 0.45s ease;
+      max-width:360px; cursor:pointer;
+    }
+    #proc-lbl.in { opacity:1; transform:none; }
+    #proc-lbl h3 {
+      font-family:"JOHTvibo",Arial,sans-serif; font-weight:900;
+      font-size:clamp(1.1rem,2vw,1.8rem); color:var(--text); margin-bottom:0.45rem;
+    }
+    #proc-lbl p {
+      font-family:"JOHTvibo",Arial,sans-serif; font-weight:400;
+      font-size:clamp(0.78rem,0.98vw,0.88rem); color:var(--text);
+      line-height:1.65; opacity:0.85;
+    }
+    .proc-hint {
+      font-family:"JOHTvibo",Arial,sans-serif; font-weight:400;
+      font-size:0.68rem; letter-spacing:0.1em; text-transform:uppercase;
+      color:var(--accent); opacity:0.75; margin-top:0.9rem;
+    }
+
+    /* ── TEAM ── */
+    #panel-team .text-wrap {
+      position:absolute; top:12vh; left:4vw; max-width:480px; padding:0 1rem;
+      pointer-events:all; opacity:0; transform:translateX(-12px);
+      transition:opacity 0.6s ease, transform 0.6s ease;
+    }
+    #panel-team .text-wrap.in { opacity:1; transform:none; }
+    .member { margin-bottom:2.4rem; opacity:0; transform:translateX(-10px); transition:opacity 0.5s ease, transform 0.5s ease; }
+    .member.in { opacity:1; transform:none; }
+    .member h3 { font-family:"JOHTvibo",Arial,sans-serif; font-weight:900; font-size:clamp(1.2rem,2.2vw,1.9rem); color:var(--text); }
+    .member p { margin-top:0.3rem; }
+
+    /* ── BACKGROUND ── */
+    #panel-background .text-wrap { position:absolute; top:12vh; right:4vw; max-width:440px; padding:0 1rem; pointer-events:all; }
+    .bg-block { margin-bottom:0; overflow:hidden; }
+    .bg-head {
+      font-family:"JOHTvibo",Arial,sans-serif; font-weight:900;
+      font-size:clamp(0.92rem,1.55vw,1.35rem); color:var(--text);
+      padding:0.75rem 0; opacity:0.3; cursor:pointer;
+      transition:opacity 0.4s ease;
+    }
+    .bg-head:hover { opacity:0.65; }
+    .bg-head.active-bg { opacity:1; cursor:default; }
+    .bg-body { max-height:0; overflow:hidden; opacity:0; transition:max-height 0.55s ease, opacity 0.45s ease 0.08s; }
+    .bg-body.open { max-height:420px; opacity:1; }
+    .bg-body p { padding-bottom:1.1rem; }
+
+    /* ── SCROLL HINT ── */
+    #scroll-hint {
+      position:fixed; bottom:3.5vh; left:50%; transform:translateX(-50%);
+      z-index:30; font-family:"JOHTvibo",Arial,sans-serif; font-weight:400;
+      font-size:0.72rem; letter-spacing:0.13em; text-transform:uppercase;
+      color:var(--nav-idle); opacity:0; pointer-events:none; transition:opacity 0.4s ease;
+    }
+    #scroll-hint.show { opacity:1; }
+  </style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+<div id="bg-click"></div>
+
+<svg id="proc-svg" xmlns="http://www.w3.org/2000/svg">
+  <line id="proc-ln" class="proc-line" x1="0" y1="0" x2="0" y2="0"/>
+  <circle id="proc-dt" class="proc-dot" cx="0" cy="0" r="6"/>
+</svg>
+<div id="proc-lbl"></div>
+
+<div id="landing"><h1>INNER<br>FUTURES</h1></div>
+
+<div id="nav">
+  <div class="nav-label" id="nl-process"    data-s="process">PROCESS</div>
+  <div class="nav-label" id="nl-timeline"   data-s="timeline">TIMELINE</div>
+  <div class="nav-label" id="nl-what"       data-s="what">WHAT</div>
+  <div class="nav-label" id="nl-team"       data-s="team">TEAM</div>
+  <div class="nav-label" id="nl-background" data-s="background">BACKGROUND</div>
+</div>
+
+<div id="content">
+
+  <!-- WHAT -->
+  <div class="panel" id="panel-what">
+    <div class="text-wrap">
+      <p class="prose">We have developed a method that helps groups inside an organisation, or across disciplines, reach a deeper and more embodied understanding of each other&#8217;s hopes and fears for the future they share.</p>
+      <p class="prose">The intervention is experiential: based on interviews with each group, we craft two short immersive experiences per group &#8212; one of hope, one of fear. Participants visit their own experiences, then each other&#8217;s, with structured reflection between each crossing. What emerges is a shared encounter with the affective ground of the organisation&#8217;s decisions &#8212; and a foundation on which the more conventional work of strategy, change and innovation can land.</p>
+      <p class="prose">The intervention sits alongside, not instead of, the rational tools an organisation already uses. It changes what those tools have to work with.</p>
+    </div>
+  </div>
+
+  <!-- TIMELINE -->
+  <div class="panel" id="panel-timeline">
+    <div class="text-wrap">
+      <div class="tier-block">
+        <div class="tier-head" data-idx="0">RUNG 1 &#8212; MALM&#214; UNIVERSITY PILOT</div>
+        <div class="tier-body"><p class="prose">Autumn 2026. A first run in a sheltered academic context, with two student groups from different disciplines. Low-stakes, generative, and the opportunity to refine the method, build the production craft, and produce the first written case. Currently in early conversation with Fredrik Bj&#246;rk and Anna Bruun M&#229;nsson.</p></div>
+      </div>
+      <div class="tier-block">
+        <div class="tier-head" data-idx="1">RUNG 2 &#8212; H&#197;LLBART N&#196;RINGSLIV 2026</div>
+        <div class="tier-body"><p class="prose">November 2026. A one-hour demonstration-format breakout for approximately twenty-four sustainability leaders at one of Sweden&#8217;s most senior sustainable-business events. Built around the theme of Economy 2.0 / regenerative business. Currently in early conversation with the programme coordinator.</p></div>
+      </div>
+      <div class="tier-block">
+        <div class="tier-head" data-idx="2">RUNG 3 &#8212; FULL ORGANISATIONAL ENGAGEMENT</div>
+        <div class="tier-body"><p class="prose">Spring 2027. A three- to six-month engagement with two or more functional groups inside a single organisation. The first paid commercial run of the method at full scale, with measurement and a publishable case study. After this arc we expect to be ready for larger-scale work in municipalities, public-sector organisations and corporate change contexts.</p></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PROCESS -->
+  <div class="panel" id="panel-process"></div>
+
+  <!-- TEAM -->
+  <div class="panel" id="panel-team">
+    <div class="text-wrap">
+      <div class="member"><h3>THYR BJ&#214;RNSON</h3><p class="prose">Process design and direction. Creates processes that help organisations understand themselves and move forward. Based in Malm&#246;, works at the intersection of systems thinking, participatory design and organisational change &#8212; across civil society, public sector and cultural contexts.</p></div>
+      <div class="member"><h3>JOAKIM GRINA</h3><p class="prose">Innovation and co-creation.</p></div>
+      <div class="member"><h3>TANA LUCKER</h3><p class="prose">Research and facilitation.</p></div>
+    </div>
+  </div>
+
+  <!-- BACKGROUND -->
+  <div class="panel" id="panel-background">
+    <div class="text-wrap">
+      <div class="bg-block">
+        <div class="bg-head" data-idx="0">EMPIRICAL</div>
+        <div class="bg-body"><p class="prose">Julia Romanowska&#8217;s randomised comparative study at Karolinska Institutet (2014) is the first research to demonstrate that an art-based intervention produces measurable, lasting changes in leader behaviour &#8212; and that those changes ripple through to measurable improvements in employees&#8217; mental health and biological stress markers (cortisol, DHEA-S). The work tested an intervention called Shibboleth against a conventional leadership programme. The differences were striking and sustained over long-term follow-up. This is, to our knowledge, the strongest published evidence base for the underlying mechanism.</p></div>
+      </div>
+      <div class="bg-block">
+        <div class="bg-head" data-idx="1">THEORETICAL</div>
+        <div class="bg-body"><p class="prose">C. Otto Scharmer&#8217;s Theory U frames major change as a movement from the surface &#8212; habitual responses &#8212; down into &#8220;presencing&#8221;: the moment of letting go and letting come, where new futures become possible. Rob Hopkins frames collective imagination as a civic muscle that needs deliberate exercise. Romanowska&#8217;s contribution &#8212; the notion of aesthemetics, the dialectical interweaving of aesthetic, emotional and ethical experience &#8212; provides the underlying theoretical engine.</p></div>
+      </div>
+      <div class="bg-block">
+        <div class="bg-head" data-idx="2">PRACTICAL</div>
+        <div class="bg-body"><p class="prose">Immersive experiential work has begun to find serious uptake at corporate and civic scale. SALLY by EY Doberman&#8217;s Dear Economy project, part-drama and part-escape-room, demonstrates that this kind of approach can be commissioned by serious organisations and produce serious outcomes. Our work anchors it in dedicated, research-backed methodology and applies it inside specific organisations to specific questions.</p></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div id="scroll-hint"></div>
+
+
+<script>
+// ================================================================
+//  CONFIG
+// ================================================================
+const CFG = {
+
+  // ── Cloud — normal state ─────────────────────────────────────
+  morphSpeed:     0.21,   // morph rate on nav / landing
+  morphSpeedSlow: 0.032,  // morph rate inside non-process sections
+  rotateSpeed:    0.10,   // rotation on nav / landing
+  rotateSpeedSlow:0.016,  // rotation inside non-process sections
+  morphBoost:     4.0,    // multiplier during process transition
+  morphStrength:  1.65,
+  elongStrength:  1.15,
+  subdivisions:   2,
+  radius:         2.3,
+  wireOpacity:    0.44,
+  offsetX:       -0.3,
+
+  // ── Process timing (all in ms) ────────────────────────────────
+  procDebounce:   950,    // min gap between steps
+  procLinger:     880,    // how long cloud morphs between steps
+  dotDelay:       140,    // after freeze: dot appears
+  lineDelay:      310,    // after freeze: line draws
+  textDelay:      520,    // after freeze: text fades in
+
+  // ── Timeline / Background ─────────────────────────────────────
+  listDebounce:   600,
+};
+
+// ================================================================
+//  THREE.JS
+// ================================================================
+const canvas   = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+const bgHex = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+renderer.setClearColor(new THREE.Color(bgHex), 1);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(44, window.innerWidth/window.innerHeight, 0.1, 100);
+camera.position.z = 7.5;
+
+// Subtle diagonal lines — use --mesh colour so they respond to theme
+const lineColor = new THREE.Color(meshHex);
+function mkLine(ax,ay,az,bx,by,bz) {
+  const g = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(ax,ay,az), new THREE.Vector3(bx,by,bz)
+  ]);
+  scene.add(new THREE.Line(g, new THREE.LineBasicMaterial({color:lineColor,opacity:0.13,transparent:true})));
+}
+mkLine(-9,2.5,-2,9,-1.5,-2);
+mkLine(-9,-0.8,-2,9,1.8,-2);
+
+const geo     = new THREE.IcosahedronGeometry(CFG.radius, CFG.subdivisions);
+const origPos = new Float32Array(geo.attributes.position.array);
+// Read --mesh CSS variable for cloud colour so it matches the :root block
+const meshHex = getComputedStyle(document.documentElement).getPropertyValue("--mesh").trim();
+const mat     = new THREE.MeshBasicMaterial({color:new THREE.Color(meshHex), wireframe:true, opacity:CFG.wireOpacity, transparent:true});
+const blob    = new THREE.Mesh(geo, mat);
+blob.position.x = CFG.offsetX;
+scene.add(blob);
+
+// ================================================================
+//  MORPH
+//  Two layers: high-freq spikes + low-freq elongation
+//  elongation uses world-space offsets → non-blob forms
+// ================================================================
+let morphTime    = 0;
+let morphPaused  = false;  // shape frozen (process steps)
+let rotatePaused = false;  // rotation frozen (process steps)
+let morphRate    = CFG.morphSpeed;
+let rotateRate   = CFG.rotateSpeed;
+
+function morphBlob(t) {
+  const pos = geo.attributes.position;
+  const s   = CFG.morphStrength;
+  const es  = CFG.elongStrength;
+  const gX  = Math.sin(t * 0.08)  * es;
+  const gY  = Math.cos(t * 0.063) * es * 0.8;
+  const gZ  = Math.sin(t * 0.10 + 1.4) * es * 0.6;
+
+  for (let i = 0; i < pos.count; i++) {
+    const ox=origPos[i*3], oy=origPos[i*3+1], oz=origPos[i*3+2];
+    const len=Math.sqrt(ox*ox+oy*oy+oz*oz);
+    const nx=ox/len, ny=oy/len, nz=oz/len;
+
+    const hi = Math.sin(nx*5.2+t*0.44)*Math.cos(ny*4.8+t*0.35)*Math.sin(nz*6.1+t*0.29)
+             + Math.sin(nx*2.7+t*0.20)*Math.cos(ny*7.3+t*0.31)*0.45
+             + Math.cos(nx*8.1+t*0.55)*Math.sin(nz*4.0+t*0.24)*0.28;
+
+    const dx = gX*(nx*nx-0.33);
+    const dy = gY*(ny*ny-0.33);
+    const dz = gZ*(nz*nz-0.33);
+
+    pos.setXYZ(i, ox+nx*hi*s+dx, oy+ny*hi*s+dy, oz+nz*hi*s+dz);
+  }
+  pos.needsUpdate = true;
+}
+
+// Convenience: set cloud to subsection (slow) or nav (normal) mode
+function setCloudSlow(slow) {
+  morphRate  = slow ? CFG.morphSpeedSlow  : CFG.morphSpeed;
+  rotateRate = slow ? CFG.rotateSpeedSlow : CFG.rotateSpeed;
+}
+
+// ================================================================
+//  STATE
+// ================================================================
+let appState      = "landing";
+let activeSection = null;
+let procStep      = 0;
+let procBusy      = false;
+let tlStep        = 0;
+let bgStep        = 0;
+
+const $landing    = document.getElementById("landing");
+const $nav        = document.getElementById("nav");
+const $content    = document.getElementById("content");
+const $bgClick    = document.getElementById("bg-click");
+const $scrollHint = document.getElementById("scroll-hint");
+const $procLn     = document.getElementById("proc-ln");
+const $procDt     = document.getElementById("proc-dt");
+const $procLbl    = document.getElementById("proc-lbl");
+
+// ── Landing ────────────────────────────────────────────────────
+$landing.addEventListener("click", () => {
+  if (appState !== "landing") return;
+  appState = "nav";
+  $landing.style.opacity = "0";
+  $landing.style.pointerEvents = "none";
+  setTimeout(() => {
+    $landing.style.display = "none";
+    $nav.classList.add("show");
+  }, 900);
+});
+
+// ── Nav clicks ─────────────────────────────────────────────────
+document.querySelectorAll(".nav-label").forEach(el => {
+  el.addEventListener("click", e => {
+    e.stopPropagation();
+    if (appState !== "nav") return;
+    openSection(el.dataset.s);
+  });
+});
+
+// ── Background click = back ────────────────────────────────────
+$bgClick.addEventListener("click", () => {
+  if (appState === "section") goBack();
+});
+
+function openSection(s) {
+  appState = "section";
+  activeSection = s;
+  lastAction = 0;   // reset debounce so first scroll in new section always fires
+
+  document.querySelectorAll(".nav-label").forEach(el => {
+    if (el.dataset.s === "what") {
+      el.classList.add("gone");
+    } else {
+      el.classList.toggle("dim",    el.dataset.s !== s);
+      el.classList.toggle("bright", el.dataset.s === s);
+    }
+  });
+
+  document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+  document.getElementById("panel-"+s).classList.add("active");
+  $content.classList.add("show");
+
+  // Cloud behaviour per section
+  if (s === "process") {
+    setCloudSlow(false);  // starts normal, freezes at first step
+    initProcess();
+  } else {
+    setCloudSlow(true);   // slow down for content sections
+    setTimeout(() => animateSection(s), 300);
+    if (s === "timeline")   initTimeline();
+    if (s === "background") initBackground();
+  }
+}
+
+function goBack() {
+  appState = "nav";
+
+  if (activeSection === "process")    teardownProcess();
+  if (activeSection === "timeline")   teardownTimeline();
+  if (activeSection === "background") teardownBackground();
+
+  $content.classList.remove("show");
+  $scrollHint.classList.remove("show");
+  document.querySelectorAll(".in").forEach(el => el.classList.remove("in"));
+  document.querySelectorAll(".nav-label").forEach(el => el.classList.remove("dim","bright","gone"));
+
+  // Restore normal cloud
+  morphPaused  = false;
+  rotatePaused = false;
+  setCloudSlow(false);
+  activeSection = null;
+}
+
+function animateSection(s) {
+  if (s === "what") {
+    document.querySelector("#panel-what .text-wrap").classList.add("in");
+  } else if (s === "team") {
+    document.querySelector("#panel-team .text-wrap").classList.add("in");
+    document.querySelectorAll("#panel-team .member").forEach((el,i) => {
+      setTimeout(() => el.classList.add("in"), 100+i*180);
+    });
+  }
+}
+
+// ================================================================
+//  TIMELINE — direct jump on click
+// ================================================================
+function initTimeline() {
+  tlStep = 0;
+  setTierStep(0);
+  showListHint("timeline");
+}
+function teardownTimeline() {
+  document.querySelectorAll(".tier-head").forEach(h => h.classList.remove("active-tier"));
+  document.querySelectorAll(".tier-body").forEach(b => b.classList.remove("open"));
+}
+function setTierStep(idx) {
+  document.querySelectorAll(".tier-head").forEach((h,i) => {
+    h.classList.toggle("active-tier", i === idx);
+  });
+  document.querySelectorAll(".tier-body").forEach((b,i) => {
+    b.classList.toggle("open", i === idx);
+  });
+  tlStep = idx;
+  showListHint("timeline");
+}
+function advanceTimeline(dir) {
+  const next = tlStep + dir;
+  const count = document.querySelectorAll(".tier-head").length;
+  if (next < 0 || next >= count) return;
+  setTierStep(next);
+}
+
+// Click any heading → jump directly
+document.querySelectorAll(".tier-head").forEach((h,i) => {
+  h.addEventListener("click", e => {
+    e.stopPropagation();
+    if (activeSection !== "timeline") return;
+    setTierStep(i);
+  });
+});
+
+// ================================================================
+//  BACKGROUND — direct jump on click
+// ================================================================
+function initBackground() {
+  bgStep = 0;
+  setBgStep(0);
+  showListHint("background");
+}
+function teardownBackground() {
+  document.querySelectorAll(".bg-head").forEach(h => h.classList.remove("active-bg"));
+  document.querySelectorAll(".bg-body").forEach(b => b.classList.remove("open"));
+}
+function setBgStep(idx) {
+  document.querySelectorAll(".bg-head").forEach((h,i) => {
+    h.classList.toggle("active-bg", i === idx);
+  });
+  document.querySelectorAll(".bg-body").forEach((b,i) => {
+    b.classList.toggle("open", i === idx);
+  });
+  bgStep = idx;
+  showListHint("background");
+}
+function advanceBackground(dir) {
+  const next = bgStep + dir;
+  const count = document.querySelectorAll(".bg-head").length;
+  if (next < 0 || next >= count) return;
+  setBgStep(next);
+}
+
+document.querySelectorAll(".bg-head").forEach((h,i) => {
+  h.addEventListener("click", e => {
+    e.stopPropagation();
+    if (activeSection !== "background") return;
+    setBgStep(i);
+  });
+});
+
+// ================================================================
+//  PROCESS — sequential reveal, click-to-advance
+// ================================================================
+const STEPS = [
+  {num:1, name:"Scoping",
+   text:"We work with the leadership team to identify the question the intervention will address. Is it strategic, cultural, or about a specific transition? Is it about a relationship between two groups? We agree who it is for and who will be affected.",
+   dotX:0.58, dotY:0.40, side:"right"},
+  {num:2, name:"Listening",
+   text:"We conduct 30\u201360 minute interviews with 6\u201310 people from each group, focused on the hopes and fears they carry in relation to the question identified. The interviews are confidential; what is shared in them is shaped, not quoted.",
+   dotX:0.44, dotY:0.54, side:"left"},
+  {num:3, name:"Building",
+   text:"We translate the interview material into two short immersive experiences per group \u2014 one of hope, one of fear. These are crafted with sound, light, text, objects and scent. They are 15\u201325 minutes long. They are designed to be felt, not analysed.",
+   dotX:0.60, dotY:0.46, side:"right"},
+  {num:4, name:"Crossing",
+   text:"Participants gather, first to experience their own group\u2019s rooms, then to cross into the other groups\u2019 rooms, with facilitated reflection between each crossing. The crossings are the heart of the work \u2014 the moment where abstract knowledge that \u201cthey see it differently\u201d becomes the felt knowledge of how and why.",
+   dotX:0.43, dotY:0.42, side:"left"},
+  {num:5, name:"Sense-making",
+   text:"A facilitated collective reflection turns the experience into shared insight. We use the iceberg model and back-casting to translate what has been felt into a map of patterns, structures and mental models \u2014 and from there into concrete actions the organisation can take.",
+   dotX:0.57, dotY:0.52, side:"right"},
+  {num:6, name:"Holding",
+   text:"Light-touch follow-up over three to six months supports the integration of the work into ongoing decisions and conversations. The work is held by a psychologist on the team; participation in each experience is opt-in.",
+   dotX:0.45, dotY:0.38, side:"left"}
+];
+
+function initProcess() {
+  procStep = 0;
+  morphPaused  = false;
+  rotatePaused = false;
+  morphRate    = CFG.morphSpeed;
+  rotateRate   = CFG.rotateSpeed;
+  setTimeout(() => showProcStep(0), 600);
+}
+function teardownProcess() {
+  morphPaused  = false;
+  rotatePaused = false;
+  procBusy     = false;   // reset so re-entry is never stuck
+  hideProcAll();
+}
+
+function showProcStep(idx) {
+  const step = STEPS[idx];
+  if (!step) return;
+  const W = window.innerWidth, H = window.innerHeight;
+
+  // ── 1. Freeze cloud completely ──
+  morphPaused  = true;
+  rotatePaused = true;
+  morphRate    = CFG.morphSpeed;  // reset rate (was boosted during transition)
+
+  const dx = step.dotX * W, dy = step.dotY * H;
+  const goRight = step.side === "right";
+  const lx2 = goRight ? dx + 85 : dx - 85;
+
+  // ── 2. Dot ──
+  setTimeout(() => {
+    $procDt.setAttribute("cx", dx);
+    $procDt.setAttribute("cy", dy);
+    $procDt.classList.add("in");
+  }, CFG.dotDelay);
+
+  // ── 3. Line (draws via stroke-dashoffset) ──
+  setTimeout(() => {
+    // Reset dash before animating
+    $procLn.style.transition = "none";
+    $procLn.setAttribute("stroke-dashoffset","90");
+    $procLn.setAttribute("x1",dx); $procLn.setAttribute("y1",dy);
+    $procLn.setAttribute("x2",lx2); $procLn.setAttribute("y2",dy);
+    requestAnimationFrame(() => {
+      $procLn.style.transition = "";
+      $procLn.classList.add("in");
+    });
+  }, CFG.lineDelay);
+
+  // ── 4. Text ──
+  setTimeout(() => {
+    const hint = idx < STEPS.length-1
+      ? "Click or scroll to continue \u2192"
+      : "\u2191 Click or scroll to step back \u00b7 Click background to exit";
+    $procLbl.innerHTML =
+      `<h3>${step.num}. ${step.name}</h3>` +
+      `<p>${step.text}</p>` +
+      `<p class="proc-hint">${hint}</p>`;
+    $procLbl.style.left  = goRight ? (lx2+12)+"px" : "auto";
+    $procLbl.style.right = goRight ? "auto" : (W-lx2+12)+"px";
+    $procLbl.style.top   = (dy-22)+"px";
+    $procLbl.classList.add("in");
+  }, CFG.textDelay);
+}
+
+function hideProcAll(cb) {
+  $procDt.classList.remove("in");
+  $procLn.classList.remove("in");
+  $procLbl.classList.remove("in");
+  setTimeout(() => { if (cb) cb(); }, 460);
+}
+
+function advanceProcStep(dir) {
+  if (procBusy) return;
+  if (activeSection !== "process") return;
+  const next = procStep + dir;
+  if (next < 0 || next >= STEPS.length) return;
+
+  procBusy = true;
+  hideProcAll(() => {
+    // Unfreeze and boost morph during transition
+    morphPaused  = false;
+    rotatePaused = false;
+    morphRate    = CFG.morphSpeed * CFG.morphBoost;
+    rotateRate   = CFG.rotateSpeed * 2.5;
+
+    setTimeout(() => {
+      procStep = next;
+      showProcStep(procStep);
+      procBusy = false;
+    }, CFG.procLinger);
+  });
+}
+
+// Click label to advance — or step back if on the last step
+$procLbl.addEventListener("click", e => {
+  e.stopPropagation();
+  if (activeSection !== "process") return;
+  const dir = procStep >= STEPS.length - 1 ? -1 : 1;
+  advanceProcStep(dir);
+});
+
+// ================================================================
+//  SCROLL
+// ================================================================
+let lastAction = 0;
+
+window.addEventListener("wheel", e => {
+  if (!activeSection) return;
+  const now = Date.now();
+  const dir = e.deltaY > 0 ? 1 : -1;
+
+  if (activeSection === "process") {
+    if (now - lastAction < CFG.procDebounce) return;
+    lastAction = now;
+    advanceProcStep(dir);
+  } else if (activeSection === "timeline") {
+    if (now - lastAction < CFG.listDebounce) return;
+    lastAction = now;
+    advanceTimeline(dir);
+  } else if (activeSection === "background") {
+    if (now - lastAction < CFG.listDebounce) return;
+    lastAction = now;
+    advanceBackground(dir);
+  }
+}, {passive:true});
+
+let tY0 = null;
+window.addEventListener("touchstart", e => { tY0 = e.touches[0].clientY; }, {passive:true});
+window.addEventListener("touchend", e => {
+  if (tY0 === null || !activeSection) return;
+  const dy = tY0 - e.changedTouches[0].clientY;
+  if (Math.abs(dy) > 40) {
+    const dir = dy > 0 ? 1 : -1;
+    if (activeSection === "process")    advanceProcStep(dir);
+    if (activeSection === "timeline")   advanceTimeline(dir);
+    if (activeSection === "background") advanceBackground(dir);
+  }
+  tY0 = null;
+});
+
+window.addEventListener("keydown", e => {
+  if (!activeSection) return;
+  const dir = (e.key==="ArrowDown"||e.key==="ArrowRight") ? 1
+            : (e.key==="ArrowUp"||e.key==="ArrowLeft")   ? -1 : 0;
+  if (!dir) return;
+  if (activeSection === "process")    advanceProcStep(dir);
+  if (activeSection === "timeline")   advanceTimeline(dir);
+  if (activeSection === "background") advanceBackground(dir);
+});
+
+// ================================================================
+//  SCROLL HINT
+// ================================================================
+function showListHint(section) {
+  const idx   = section === "timeline" ? tlStep : bgStep;
+  const count = section === "timeline"
+    ? document.querySelectorAll(".tier-head").length
+    : document.querySelectorAll(".bg-head").length;
+  $scrollHint.textContent = idx < count-1
+    ? "Scroll or click heading for next"
+    : "\u2191 Scroll to go back";
+  $scrollHint.classList.add("show");
+}
+
+// ================================================================
+//  RESIZE
+// ================================================================
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  // Reposition process elements if currently showing a step
+  if (activeSection === "process" && !procBusy) {
+    hideProcAll(() => showProcStep(procStep));
+  }
+});
+
+// ================================================================
+//  ANIMATION LOOP
+// ================================================================
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+  if (!morphPaused)  morphTime += dt * morphRate;
+  if (!rotatePaused) {
+    blob.rotation.y += dt * rotateRate;
+    blob.rotation.x += dt * rotateRate * 0.28;
+  }
+  morphBlob(morphTime);
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
